@@ -1,0 +1,126 @@
+debug 2025/11/25 17:26:00 Toggling light: Office Back
+debug 2025/11/25 17:26:01 Toggling light: Office Left
+debug 2025/11/25 17:26:58 Toggling light: Office Back
+debug 2025/11/25 17:26:58 Current status of Office Back: 
+debug 2025/11/25 17:26:59 Toggling light: Office Desk
+debug 2025/11/25 17:26:59 Current status of Office Desk: 
+debug 2025/11/25 17:27:52 Toggling light: Office Desk
+debug 2025/11/25 17:27:52 Light Office Desk status: 
+debug 2025/11/25 17:27:52 Current status of Office Desk: 
+debug 2025/11/25 17:32:44 Toggling light: Office Back
+debug 2025/11/25 17:32:44 Light Office Back status: 
+debug 2025/11/25 17:32:44 Current status of Office Back: 
+debug 2025/11/25 17:32:44 Toggling light: Office Desk
+debug 2025/11/25 17:32:44 Light Office Desk status: 
+debug 2025/11/25 17:32:44 Current status of Office Desk: 
+debug 2025/11/25 17:33:56 Toggling light: Office Back
+debug 2025/11/25 17:33:56 Light Office Back status: 
+debug 2025/11/25 17:33:56 Current status of Office Back: 
+debug 2025/11/25 17:33:56 Toggling light: Office Desk
+debug 2025/11/25 17:33:56 Light Office Desk status: 
+debug 2025/11/25 17:33:56 Current status of Office Desk: 
+debug 2025/11/25 17:35:31 Toggling light: Office Back
+debug 2025/11/25 17:35:31 Light Office Back status: true
+debug 2025/11/25 17:35:31 Current status of Office Back: true
+debug 2025/11/25 17:35:31 Toggling light: Office Desk
+debug 2025/11/25 17:35:31 Light Office Desk status: true
+debug 2025/11/25 17:35:31 Current status of Office Desk: true
+debug 2025/11/25 17:36:46 Toggling light: Office Desk
+debug 2025/11/25 17:36:46 Light Office Desk status: true
+debug 2025/11/25 17:36:46 Current status of Office Desk: true
+debug 2025/11/25 17:36:58 Toggling light: Office Desk
+debug 2025/11/25 17:36:58 Light Office Desk status: true
+debug 2025/11/25 17:36:58 Current status of Office Desk: true
+debug 2025/11/25 17:39:04 Toggling light: Office Desk
+debug 2025/11/25 17:39:04 Current status of Office Desk: true
+debug 2025/11/25 17:39:04 Toggling light Office Desk with current status true
+debug 2025/11/25 17:44:49 Toggling light: Office Desk
+debug 2025/11/25 17:44:49 Current status of Office Desk: %!s(bool=true)
+debug 2025/11/25 17:44:49 Toggling light Office Desk with current status true
+debug 2025/11/25 17:44:54 Toggling light: Office Bar
+debug 2025/11/25 17:44:54 Current status of Office Bar: %!s(bool=true)
+debug 2025/11/25 17:44:54 Toggling light Office Bar with current status true
+debug 2025/11/25 17:44:54 Toggling light: Office Desk
+debug 2025/11/25 17:44:55 Current status of Office Desk: %!s(bool=false)
+debug 2025/11/25 17:44:55 Toggling light Office Desk with current status false
+debug 2025/11/25 17:45:23 Toggling light: Office Right
+debug 2025/11/25 17:45:23 Current status of Office Right: %!s(bool=true)
+debug 2025/11/25 17:45:23 Toggling light Office Right with current status true
+debug 2025/11/25 17:45:24 Toggling light: Office Bar
+debug 2025/11/25 17:45:24 Current status of Office Bar: %!s(bool=false)
+debug 2025/11/25 17:45:24 Toggling light Office Bar with current status false
+debug 2025/11/25 17:45:26 Toggling light: Office Bar
+debug 2025/11/25 17:45:26 Current status of Office Bar: %!s(bool=true)
+debug 2025/11/25 17:45:26 Toggling light Office Bar with current status true
+debug 2025/11/25 17:45:29 Toggling light: Office Desk
+debug 2025/11/25 17:45:29 Current status of Office Desk: %!s(bool=true)
+debug 2025/11/25 17:45:29 Toggling light Office Desk with current status true
+debug 2025/11/25 17:45:31 Toggling light: Office Desk
+debug 2025/11/25 17:45:31 Current status of Office Desk: %!s(bool=false)
+debug 2025/11/25 17:45:31 Toggling light Office Desk with current status false
+debug 2025/11/25 17:45:33 Toggling light: Office Bar
+debug 2025/11/25 17:45:33 Current status of Office Bar: %!s(bool=false)
+debug 2025/11/25 17:45:33 Toggling light Office Bar with current status false
+debug 2025/11/25 17:45:35 Toggling light: Office Bar
+debug 2025/11/25 17:45:36 Current status of Office Bar: %!s(bool=true)
+debug 2025/11/25 17:45:36 Toggling light Office Bar with current status true
+debug 2025/11/25 17:45:36 Toggling light: Office Right
+debug 2025/11/25 17:45:36 Current status of Office Right: %!s(bool=false)
+debug 2025/11/25 17:45:36 Toggling light Office Right with current status false
+debug 2025/11/25 17:45:43 Toggling light: Office Back
+debug 2025/11/25 17:45:43 Current status of Office Back: %!s(bool=true)
+debug 2025/11/25 17:45:43 Toggling light Office Back with current status true
+debug 2025/11/25 17:45:49 Toggling light: Office Back
+debug 2025/11/25 17:45:49 Current status of Office Back: %!s(bool=false)
+debug 2025/11/25 17:45:49 Toggling light Office Back with current status false
+debug 2025/11/25 17:45:58 Toggling light: Office Bar
+debug 2025/11/25 17:45:59 Current status of Office Bar: %!s(bool=false)
+debug 2025/11/25 17:45:59 Toggling light Office Bar with current status false
+debug 2025/11/25 17:46:19 Toggling light: Office Desk
+debug 2025/11/25 17:46:19 Current status of Office Desk: %!s(bool=true)
+debug 2025/11/25 17:46:19 Toggling light Office Desk with current status true
+debug 2025/11/25 17:46:22 Toggling light: Office Desk
+debug 2025/11/25 17:46:22 Current status of Office Desk: %!s(bool=false)
+debug 2025/11/25 17:46:22 Toggling light Office Desk with current status false
+debug 2025/11/25 18:05:18 Toggling light: Office Back
+debug 2025/11/25 18:05:18 Current status of Office Back: %!s(bool=true)
+debug 2025/11/25 18:05:18 Toggling light Office Back with current status true
+debug 2025/11/25 18:05:18 Toggling light: Office Desk
+debug 2025/11/25 18:05:18 Current status of Office Desk: %!s(bool=true)
+debug 2025/11/25 18:05:18 Toggling light Office Desk with current status true
+debug 2025/11/25 18:05:27 Toggling light: Office Desk
+debug 2025/11/25 18:05:27 Current status of Office Desk: %!s(bool=false)
+debug 2025/11/25 18:05:27 Toggling light Office Desk with current status false
+debug 2025/11/25 18:05:27 Toggling light: Office Back
+debug 2025/11/25 18:05:27 Current status of Office Back: %!s(bool=false)
+debug 2025/11/25 18:05:27 Toggling light Office Back with current status false
+debug 2025/11/25 18:36:53 Toggling light: Office Desk
+debug 2025/11/25 18:36:53 Current status of Office Desk: %!s(bool=true)
+debug 2025/11/25 18:36:53 Toggling light Office Desk with current status true
+debug 2025/11/25 18:36:57 Toggling light: Office Left
+debug 2025/11/25 18:36:57 Current status of Office Left: %!s(bool=true)
+debug 2025/11/25 18:36:57 Toggling light Office Left with current status true
+debug 2025/11/25 18:36:57 Toggling light: Office Desk
+debug 2025/11/25 18:36:58 Current status of Office Desk: %!s(bool=false)
+debug 2025/11/25 18:36:58 Toggling light Office Desk with current status false
+debug 2025/11/25 18:37:31 Toggling light: Office Back
+debug 2025/11/25 18:37:31 Current status of Office Back: %!s(bool=true)
+debug 2025/11/25 18:37:31 Toggling light Office Back with current status true
+debug 2025/11/25 18:37:31 Toggling light: Office Left
+debug 2025/11/25 18:37:32 Current status of Office Left: %!s(bool=false)
+debug 2025/11/25 18:37:32 Toggling light Office Left with current status false
+debug 2025/11/25 18:37:32 Toggling light: Office Desk
+debug 2025/11/25 18:37:32 Current status of Office Desk: %!s(bool=true)
+debug 2025/11/25 18:37:32 Toggling light Office Desk with current status true
+debug 2025/11/25 18:37:37 Toggling light: Office Left
+debug 2025/11/25 18:37:37 Current status of Office Left: %!s(bool=true)
+debug 2025/11/25 18:37:37 Toggling light Office Left with current status true
+debug 2025/11/25 18:37:37 Toggling light: Office Desk
+debug 2025/11/25 18:37:38 Current status of Office Desk: %!s(bool=false)
+debug 2025/11/25 18:37:38 Toggling light Office Desk with current status false
+debug 2025/11/25 18:37:38 Toggling light: Office Back
+debug 2025/11/25 18:37:38 Current status of Office Back: %!s(bool=false)
+debug 2025/11/25 18:37:38 Toggling light Office Back with current status false
+debug 2025/11/25 18:37:42 Toggling light: Office Left
+debug 2025/11/25 18:37:42 Current status of Office Left: %!s(bool=false)
+debug 2025/11/25 18:37:42 Toggling light Office Left with current status false
