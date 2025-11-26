@@ -7,8 +7,25 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	headerStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BD93F9")).Underline(true)
+	cursorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6"))
+	selectedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B"))
+	statusOnStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#50FA7B"))
+	statusOffStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555"))
+
+	// Table border style
+	tableStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#6272A4")).
+			Padding(0, 2).
+			Margin(1, 0)
 )
 
 type Light struct {
@@ -104,29 +121,80 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
-	s := "Your Hue Lights\n\n"
+	const (
+		nameWidth   = 30
+		typeWidth   = 18
+		statusWidth = 6
+	)
 
+	// Styles
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BD93F9"))
+	dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#44475A"))
+
+	var rows []string
+
+	// Header row — built exactly like data rows → perfect alignment
+	header := lipgloss.NewStyle().Width(nameWidth).Render(headerStyle.Render("NAME")) + "  " +
+		lipgloss.NewStyle().Width(typeWidth).Render(headerStyle.Render("TYPE")) + "  " +
+		lipgloss.NewStyle().Width(statusWidth).Render(headerStyle.Render("STATUS"))
+
+	rows = append(rows, "  "+header)
+
+	// Horizontal divider
+	divider := lipgloss.NewStyle().Width(nameWidth).Render(dividerStyle.Render(strings.Repeat("─", nameWidth))) + "  " +
+		lipgloss.NewStyle().Width(typeWidth).Render(dividerStyle.Render(strings.Repeat("─", typeWidth))) + "  " +
+		lipgloss.NewStyle().Width(statusWidth).Render(dividerStyle.Render(strings.Repeat("─", statusWidth)))
+
+	rows = append(rows, "  "+divider)
+
+	// Data rows
 	for i, light := range m.light {
-		// Is the cursor pointing at this choice?
-		cursor := " " // no cursor
+		cursor := "  "
 		if m.cursor == i {
-			cursor = ">" // cursor!
+			cursor = cursorStyle.Render("▶ ")
 		}
 
-		// Is this choice selected?
-		checked := " " // not selected
+		checkmark := " "
 		if _, ok := m.selected[i]; ok {
-			checked = "x" // selected!
+			checkmark = selectedStyle.Render("✓ ")
 		}
 
-		// Render the row (show the light's name)
-		s += fmt.Sprintf("%s [%s] %s %s %s\n", cursor, checked, light.Name, light.Type, light.Status)
-	}
-	// The footer
-	s += "\nPress q to quit.\n"
+		// Truncate long names/types
+		name := light.Name
+		if len(name) > nameWidth {
+			name = name[:nameWidth-3] + "..."
+		}
+		typ := light.Type
+		if len(typ) > typeWidth {
+			typ = typ[:typeWidth-3] + "..."
+		}
 
-	// Send the UI for rendering
-	return s
+		status := "OFF"
+		if light.Status == "on" {
+			status = statusOnStyle.Render("ON ")
+		} else {
+			status = statusOffStyle.Render("OFF")
+		}
+
+		row := cursor + checkmark +
+			lipgloss.NewStyle().Width(nameWidth).Render(name) + "  " +
+			lipgloss.NewStyle().Width(typeWidth).Render(typ) + "  " +
+			lipgloss.NewStyle().Width(statusWidth).Render(status)
+
+		rows = append(rows, "  "+row)
+	}
+
+	// Join everything
+	tableContent := lipgloss.JoinVertical(lipgloss.Left, rows...)
+
+	// Box with padding
+	boxed := tableStyle.Render(tableContent)
+
+	// Title & footer
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF79C6")).MarginLeft(2).Render("Your Hue Lights")
+	footer := lipgloss.NewStyle().Faint(true).MarginTop(1).MarginLeft(2).Render("Press space to select • enter to toggle • q to quit.")
+
+	return title + "\n\n" + boxed + "\n" + footer
 }
 
 func returnLights() ([]Light, error) {
