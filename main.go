@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/joho/godotenv"
 	"github.com/r3labs/sse/v2"
 )
 
@@ -320,6 +321,12 @@ func toggleLight(lightName string, lightStatus bool) error {
 }
 
 func main() {
+	// Externalize environment variables from .env file if present
+	if err := godotenv.Load(); err != nil {
+		log.Print("No .env file found, loading from system environment")
+	}
+
+	// Set up logging to file
 	f, err := tea.LogToFile("debug.log", "debug")
 	if err != nil {
 		fmt.Println("fatal:", err)
@@ -338,7 +345,7 @@ func main() {
 				InsecureSkipVerify: true,
 			},
 		}
-		sse_client.Headers["hue-application-key"] = "rk6XE6tH06SNw8k4CMom57T4-CHcPZAdNrzo7xSe"
+		sse_client.Headers["hue-application-key"] = os.Getenv("KEY")
 		err := sse_client.SubscribeRaw(func(msg *sse.Event) {
 			sseChannel <- msg.Data
 		})
