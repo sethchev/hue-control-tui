@@ -7,13 +7,12 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/joho/godotenv"
+	"github.com/openhue/openhue-go"
 	"github.com/r3labs/sse/v2"
 )
 
@@ -29,6 +28,9 @@ var (
 			BorderForeground(lipgloss.Color("#6272A4")).
 			Padding(0, 2).
 			Margin(1, 0)
+
+	// Openhue home instance
+	home *openhue.Home
 )
 
 type Light struct {
@@ -157,15 +159,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// If something is selected
 			if len(m.selected) > 0 {
 				for index := range m.selected {
-					lightName := m.light[index].Name
-					lightStatus, err := getLightStatus(lightName)
+					lightID := m.light[index].ID
+					lightStatus, err := getLightStatus(lightID)
 					if err != nil {
-						log.Printf("Error getting light status for %s: %v", lightName, err)
+						log.Printf("Error getting light status for %s: %v", lightID, err)
 						continue
 					}
-					err = toggleLight(lightName, lightStatus)
+					err = toggleLight(lightID, lightStatus)
 					if err != nil {
-						log.Printf("Error toggling light for %s: %v", lightName, err)
+						log.Printf("Error toggling light for %s: %v", lightID, err)
 						continue
 					}
 					m.selected = make(map[int]struct{})
@@ -188,7 +190,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	const (
-		nameWidth   = 30
+		nameWidth   = 20
 		typeWidth   = 18
 		statusWidth = 6
 	)
@@ -201,14 +203,14 @@ func (m model) View() string {
 
 	// Header row — built exactly like data rows → perfect alignment
 	header := lipgloss.NewStyle().Width(nameWidth).Render(headerStyle.Render("NAME")) + "  " +
-		lipgloss.NewStyle().Width(typeWidth).Render(headerStyle.Render("TYPE")) + "  " +
+		//lipgloss.NewStyle().Width(typeWidth).Render(headerStyle.Render("TYPE")) + "  " +
 		lipgloss.NewStyle().Width(statusWidth).Render(headerStyle.Render("STATUS"))
 
 	rows = append(rows, "  "+header)
 
 	// Horizontal divider
 	divider := lipgloss.NewStyle().Width(nameWidth).Render(dividerStyle.Render(strings.Repeat("─", nameWidth))) + "  " +
-		lipgloss.NewStyle().Width(typeWidth).Render(dividerStyle.Render(strings.Repeat("─", typeWidth))) + "  " +
+		//lipgloss.NewStyle().Width(typeWidth).Render(dividerStyle.Render(strings.Repeat("─", typeWidth))) + "  " +
 		lipgloss.NewStyle().Width(statusWidth).Render(dividerStyle.Render(strings.Repeat("─", statusWidth)))
 
 	rows = append(rows, "  "+divider)
@@ -230,10 +232,10 @@ func (m model) View() string {
 		if len(name) > nameWidth {
 			name = name[:nameWidth-3] + "..."
 		}
-		typ := light.Type
+		/*typ := light.Type
 		if len(typ) > typeWidth {
 			typ = typ[:typeWidth-3] + "..."
-		}
+		}*/
 
 		status := "OFF"
 		if light.Status == "on" {
@@ -244,7 +246,7 @@ func (m model) View() string {
 
 		row := cursor + checkmark +
 			lipgloss.NewStyle().Width(nameWidth).Render(name) + "  " +
-			lipgloss.NewStyle().Width(typeWidth).Render(typ) + "  " +
+			//lipgloss.NewStyle().Width(typeWidth).Render(typ) + "  " +
 			lipgloss.NewStyle().Width(statusWidth).Render(status)
 
 		rows = append(rows, "  "+row)
@@ -264,66 +266,58 @@ func (m model) View() string {
 }
 
 func returnLights() ([]Light, error) {
-	light_command := "openhue get lights -j|jq 'map({id: .Id, name: .Name, type: .HueData.metadata.archetype, status: .HueData.on.on})' | jq 'map(if .status == true then .status = \"on\" else .status = \"off\" end)'"
-
-	cmd := exec.Command("bash", "-c", light_command)
-	output, err := cmd.Output()
-
+	lights, err := home.GetLights()
 	if err != nil {
-		log.Fatalf("Error executing command: %v", err)
+		return nil, fmt.Errorf("error fetching lights: %v", err)
 	}
 
-	var lights []Light
-	err = json.Unmarshal(output, &lights)
-	if err != nil {
-		log.Fatalf("Error parsing JSON: %v", err)
+	var result []Light
+	for id, light := range lights {
+		status := "off"
+		if light.IsOn() {
+			status = "on"
+		}
+		result = append(result, Light{
+			ID:     id,
+			Name:   *light.Metadata.Name,
+			Type:   string(*light.Metadata.Archetype),
+			Status: status,
+		})
 	}
-
-	return lights, nil
+	return result, nil
 }
 
-func getLightStatus(lightName string) (bool, error) {
-	light_command := "openhue get light \"" + lightName + "\" -j|jq -r '.HueData.on.on'"
-
-	cmd := exec.Command("bash", "-c", light_command)
-	output, err := cmd.Output()
-
+func getLightStatus(lightID string) (bool, error) {
+	lights, err := home.GetLights()
 	if err != nil {
-		return false, fmt.Errorf("error getting light status for %s: %v", lightName, err)
+		return false, fmt.Errorf("error fetching lights: %v", err)
 	}
-	string_output := string(output)
-	bool_output, err := strconv.ParseBool(string_output[:len(string_output)-1])
-	if err != nil {
-		return false, fmt.Errorf("error parsing light status for %s: %v", lightName, err)
+	light, ok := lights[lightID]
+	if !ok {
+		return false, fmt.Errorf("light not found: %s", lightID)
 	}
-	return bool_output, nil
+	return light.IsOn(), nil
 }
 
-func toggleLight(lightName string, lightStatus bool) error {
-	log.Printf("Toggling light %s with current status %t", lightName, lightStatus)
-	if lightStatus {
-		light_command := "openhue set light \"" + lightName + "\" --off"
-
-		cmd := exec.Command("bash", "-c", light_command)
-		_, err := cmd.Output()
-		if err != nil {
-			return fmt.Errorf("error turning light off for %s: %v", lightName, err)
-		}
-	} else {
-		light_command := "openhue set light \"" + lightName + "\" --on"
-		cmd := exec.Command("bash", "-c", light_command)
-		_, err := cmd.Output()
-		if err != nil {
-			return fmt.Errorf("error turning light on for %s: %v", lightName, err)
-		}
-	}
-	return nil
+func toggleLight(lightID string, currentStatus bool) error {
+	newStatus := !currentStatus
+	log.Printf("Toggling light %s from %t to %t", lightID, currentStatus, newStatus)
+	return home.UpdateLight(lightID, openhue.LightPut{
+		On: &openhue.On{On: &newStatus},
+	})
 }
 
 func main() {
 	// Externalize environment variables from .env file if present
 	if err := godotenv.Load(); err != nil {
 		log.Print("No .env file found, loading from system environment")
+	}
+
+	// Initialize openhue home instance
+	var err error
+	home, err = openhue.NewHome(os.Getenv("BRIDGE_IP"), os.Getenv("KEY"))
+	if err != nil {
+		log.Fatalf("Failed to create openhue home: %v", err)
 	}
 
 	// Set up logging to file
