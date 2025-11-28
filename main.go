@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -11,10 +13,10 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/r3labs/sse/v2"
 )
 
 var (
-	headerStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BD93F9")).Underline(true)
 	cursorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF79C6"))
 	selectedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B"))
 	statusOnStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#50FA7B"))
@@ -29,34 +31,100 @@ var (
 )
 
 type Light struct {
+	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Type   string `json:"type"`
 	Status string `json:"status"`
 }
 
-type model struct {
-	light    []Light
-	cursor   int
-	selected map[int]struct{}
+type SSEMsg struct {
+	Data []byte
 }
 
-func initialModel(lights []Light) model {
+// Minimal SSE parsing types for filtering "light" events
+type SSEDataItem struct {
+	ID           string `json:"id"`
+	IDV1         string `json:"id_v1"`
+	Type         string `json:"type"`
+	CreationTime string `json:"creationtime"`
+	On           struct {
+		On bool `json:"on"`
+	} `json:"on,omitempty"`
+	Dimming struct {
+		Brightness float64 `json:"brightness"`
+	} `json:"dimming,omitempty"`
+}
+
+type SSEUpdate struct {
+	CreationTime string        `json:"creationtime"`
+	Data         []SSEDataItem `json:"data"`
+	ID           string        `json:"id"`
+	Type         string        `json:"type"`
+}
+
+type model struct {
+	light      []Light
+	cursor     int
+	selected   map[int]struct{}
+	sseChannel chan []byte
+}
+
+func initialModel(lights []Light, sseChannel chan []byte) model {
 	var listLights []Light
 
 	listLights = append(listLights, lights...)
 
 	return model{
-		light:    listLights,
-		selected: make(map[int]struct{}),
+		light:      listLights,
+		selected:   make(map[int]struct{}),
+		sseChannel: sseChannel,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return func() tea.Msg {
+		data := <-m.sseChannel
+		return SSEMsg{Data: data}
+	}
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case SSEMsg:
+		// Parse SSE JSON and handle only inner items of type "light"
+		var updates []SSEUpdate
+		if err := json.Unmarshal(msg.Data, &updates); err != nil {
+			log.Printf("SSE: failed to parse JSON: %v", err)
+			log.Printf("raw: %s", string(msg.Data))
+			return m, m.Init()
+		}
+
+		for _, upd := range updates {
+			// top-level update.Type may be "update" etc.; iterate inner data
+			for _, item := range upd.Data {
+				if item.Type != "light" {
+					// ignore non-light events
+					continue
+				}
+
+				// Log event for debugging
+				log.Printf("SSE light event: id=%s id_v1=%s on=%v brightness=%v",
+					item.ID, item.IDV1, item.On.On, item.Dimming.Brightness)
+
+				// Update lights based on ID match
+				for i := range m.light {
+					if m.light[i].ID == item.ID {
+						if item.On.On {
+							m.light[i].Status = "on"
+						} else {
+							m.light[i].Status = "off"
+						}
+					}
+				}
+			}
+		}
+
+		return m, m.Init()
 	case tea.KeyMsg:
 		switch msg.String() {
 		// These keys should exit the program.
@@ -75,8 +143,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 
-		// The "enter" key and the spacebar (a literal space) toggle
-		// the selected state for the item that the cursor is pointing at.
+		// The spacebar toggles item for selection
 		case " ":
 			_, ok := m.selected[m.cursor]
 			if ok {
@@ -86,13 +153,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "enter":
-			// Clear all selections (unselect everything)
+			// If something is selected
 			if len(m.selected) > 0 {
 				for index := range m.selected {
 					lightName := m.light[index].Name
-					log.Printf("Toggling light: %s", lightName)
 					lightStatus, err := getLightStatus(lightName)
-					log.Printf("Current status of %s: %t", lightName, lightStatus)
 					if err != nil {
 						log.Printf("Error getting light status for %s: %v", lightName, err)
 						continue
@@ -104,7 +169,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.selected = make(map[int]struct{})
 				}
-				// Refresh the entire list from the system (most reliable)
+				// Refresh the entire list
 				freshLights, err := returnLights()
 				if err != nil {
 					log.Printf("Warning: Failed to refresh lights after toggle: %v", err)
@@ -198,7 +263,7 @@ func (m model) View() string {
 }
 
 func returnLights() ([]Light, error) {
-	light_command := "openhue get lights -j|jq 'map({name: .Name, type: .HueData.metadata.archetype, status: .HueData.on.on})' | jq 'map(if .status == true then .status = \"on\" else .status = \"off\" end)'"
+	light_command := "openhue get lights -j|jq 'map({id: .Id, name: .Name, type: .HueData.metadata.archetype, status: .HueData.on.on})' | jq 'map(if .status == true then .status = \"on\" else .status = \"off\" end)'"
 
 	cmd := exec.Command("bash", "-c", light_command)
 	output, err := cmd.Output()
@@ -261,13 +326,35 @@ func main() {
 		os.Exit(1)
 	}
 	defer f.Close()
+
+	// Create channel for SSE events
+	sseChannel := make(chan []byte)
+
+	// Start SSE client in a goroutine so it doesn't block the TUI
+	go func() {
+		sse_client := sse.NewClient("https://192.168.1.14/eventstream/clip/v2")
+		sse_client.Connection.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+		sse_client.Headers["hue-application-key"] = "rk6XE6tH06SNw8k4CMom57T4-CHcPZAdNrzo7xSe"
+		err := sse_client.SubscribeRaw(func(msg *sse.Event) {
+			sseChannel <- msg.Data
+		})
+		if err != nil {
+			log.Printf("Error subscribing to SSE: %v", err)
+		}
+	}()
+
 	p := tea.NewProgram(initialModel(func() []Light {
 		lights, err := returnLights()
 		if err != nil {
 			log.Fatalf("Error returning lights: %v", err)
 		}
 		return lights
-	}()))
+	}(), sseChannel))
+
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
 		os.Exit(1)
