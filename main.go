@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,7 +13,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/joho/godotenv"
 	"github.com/openhue/openhue-go"
 	"github.com/r3labs/sse/v2"
 )
@@ -35,10 +35,11 @@ var (
 )
 
 type Light struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Status string `json:"status"`
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Type       string  `json:"type"`
+	Status     string  `json:"status"`
+	Brightness float32 `json:"brightness"`
 }
 
 type SSEMsg struct {
@@ -56,7 +57,7 @@ type SSEDataItem struct {
 	} `json:"on,omitempty"`
 	Dimming struct {
 		Brightness float64 `json:"brightness"`
-	} //`json:"dimming, omitempty"`
+	}
 }
 
 type SSEUpdate struct {
@@ -128,6 +129,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
+
+				// Update brightness if present
+				if item.Dimming.Brightness != 0 {
+					for i := range m.light {
+						if m.light[i].ID == item.ID {
+							m.light[i].Brightness = float32(item.Dimming.Brightness)
+						}
+					}
+				}
 			}
 		}
 
@@ -194,9 +204,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	const (
-		nameWidth   = 20
-		typeWidth   = 18
-		statusWidth = 6
+		nameWidth       = 16
+		statusWidth     = 6
+		brightnessWidth = 10
 	)
 
 	// Styles
@@ -207,15 +217,15 @@ func (m model) View() string {
 
 	// Header row — built exactly like data rows → perfect alignment
 	header := lipgloss.NewStyle().Width(nameWidth).Render(headerStyle.Render("NAME")) + "  " +
-		//lipgloss.NewStyle().Width(typeWidth).Render(headerStyle.Render("TYPE")) + "  " +
-		lipgloss.NewStyle().Width(statusWidth).Render(headerStyle.Render("STATUS"))
+		lipgloss.NewStyle().Width(statusWidth).Render(headerStyle.Render("STATUS")) + "  " +
+		lipgloss.NewStyle().Width(brightnessWidth).Render(headerStyle.Render("BRIGHTNESS"))
 
 	rows = append(rows, "  "+header)
 
 	// Horizontal divider
 	divider := lipgloss.NewStyle().Width(nameWidth).Render(dividerStyle.Render(strings.Repeat("─", nameWidth))) + "  " +
-		//lipgloss.NewStyle().Width(typeWidth).Render(dividerStyle.Render(strings.Repeat("─", typeWidth))) + "  " +
-		lipgloss.NewStyle().Width(statusWidth).Render(dividerStyle.Render(strings.Repeat("─", statusWidth)))
+		lipgloss.NewStyle().Width(statusWidth).Render(dividerStyle.Render(strings.Repeat("─", statusWidth))) + "  " +
+		lipgloss.NewStyle().Width(brightnessWidth).Render(dividerStyle.Render(strings.Repeat("─", brightnessWidth)))
 
 	rows = append(rows, "  "+divider)
 
@@ -236,10 +246,6 @@ func (m model) View() string {
 		if len(name) > nameWidth {
 			name = name[:nameWidth-3] + "..."
 		}
-		/*typ := light.Type
-		if len(typ) > typeWidth {
-			typ = typ[:typeWidth-3] + "..."
-		}*/
 
 		status := "OFF"
 		if light.Status == "on" {
@@ -248,11 +254,13 @@ func (m model) View() string {
 			status = statusOffStyle.Render("OFF")
 		}
 
+		bright := fmt.Sprintf("%.0f%%", light.Brightness)
+		bright = lipgloss.NewStyle().Width(brightnessWidth).Render(bright)
+
 		row := cursor + checkmark +
 			lipgloss.NewStyle().Width(nameWidth).Render(name) + "  " +
-			//lipgloss.NewStyle().Width(typeWidth).Render(typ) + "  " +
-			lipgloss.NewStyle().Width(statusWidth).Render(status)
-
+			lipgloss.NewStyle().Width(statusWidth).Render(status) + "  " +
+			lipgloss.NewStyle().Width(brightnessWidth).Render(bright)
 		rows = append(rows, "  "+row)
 	}
 
@@ -290,10 +298,11 @@ func returnLights() ([]Light, error) {
 			status = "on"
 		}
 		result = append(result, Light{
-			ID:     id,
-			Name:   *light.Metadata.Name,
-			Type:   string(*light.Metadata.Archetype),
-			Status: status,
+			ID:         id,
+			Name:       *light.Metadata.Name,
+			Type:       string(*light.Metadata.Archetype),
+			Status:     status,
+			Brightness: *light.Dimming.Brightness,
 		})
 	}
 	return result, nil
@@ -320,14 +329,13 @@ func toggleLight(lightID string, currentStatus bool) error {
 }
 
 func main() {
-	// Externalize environment variables from .env file if present
-	if err := godotenv.Load(); err != nil {
-		log.Print("No .env file found, loading from system environment")
-	}
+	bridge_ip := flag.String("bridge_ip", "", "IP address of the Hue Bridge")
+	hue_application_key := flag.String("key", "", "Hue application key")
+	flag.Parse()
 
 	// Initialize openhue home instance
 	var err error
-	home, err = openhue.NewHome(os.Getenv("BRIDGE_IP"), os.Getenv("KEY"))
+	home, err = openhue.NewHome(*bridge_ip, *hue_application_key)
 	if err != nil {
 		log.Fatalf("Failed to create openhue home: %v", err)
 	}
@@ -345,13 +353,13 @@ func main() {
 
 	// Start SSE client in a goroutine so it doesn't block the TUI
 	go func() {
-		sse_client := sse.NewClient("https://" + os.Getenv("BRIDGE_IP") + "/eventstream/clip/v2")
+		sse_client := sse.NewClient("https://" + *bridge_ip + "/eventstream/clip/v2")
 		sse_client.Connection.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 			},
 		}
-		sse_client.Headers["hue-application-key"] = os.Getenv("KEY")
+		sse_client.Headers["hue-application-key"] = *hue_application_key
 		err := sse_client.SubscribeRaw(func(msg *sse.Event) {
 			sseChannel <- msg.Data
 		})
