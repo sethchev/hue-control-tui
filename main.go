@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,13 +50,13 @@ type SSEDataItem struct {
 	ID           string `json:"id"`
 	IDV1         string `json:"id_v1"`
 	Type         string `json:"type"`
-	CreationTime string `json:"creationtime"`
-	On           struct {
-		On bool `json:"on"`
+	CreationTime string `json:"creationtime,omitempty"`
+	On           *struct {
+		On bool `json:"on,omitempty"`
 	} `json:"on,omitempty"`
 	Dimming struct {
 		Brightness float64 `json:"brightness"`
-	} `json:"dimming,omitempty"`
+	} //`json:"dimming, omitempty"`
 }
 
 type SSEUpdate struct {
@@ -109,18 +110,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// ignore non-light events
 					continue
 				}
-
+				log.Printf("Entire item: %+v", item)
 				// Log event for debugging
 				log.Printf("SSE light event: id=%s id_v1=%s on=%v brightness=%v",
-					item.ID, item.IDV1, item.On.On, item.Dimming.Brightness)
+					item.ID, item.IDV1, item.On, item.Dimming.Brightness)
 
 				// Update lights based on ID match
-				for i := range m.light {
-					if m.light[i].ID == item.ID {
-						if item.On.On {
-							m.light[i].Status = "on"
-						} else {
-							m.light[i].Status = "off"
+				// Only update status if the On field was present in the JSON
+				if item.On != nil {
+					for i := range m.light {
+						if m.light[i].ID == item.ID {
+							if item.On.On {
+								m.light[i].Status = "on"
+							} else {
+								m.light[i].Status = "off"
+							}
 						}
 					}
 				}
@@ -271,8 +275,16 @@ func returnLights() ([]Light, error) {
 		return nil, fmt.Errorf("error fetching lights: %v", err)
 	}
 
+	// Extract IDs and sort them to maintain consistent order
+	ids := make([]string, 0, len(lights))
+	for id := range lights {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
 	var result []Light
-	for id, light := range lights {
+	for _, id := range ids {
+		light := lights[id]
 		status := "off"
 		if light.IsOn() {
 			status = "on"
@@ -333,7 +345,7 @@ func main() {
 
 	// Start SSE client in a goroutine so it doesn't block the TUI
 	go func() {
-		sse_client := sse.NewClient("https://192.168.1.14/eventstream/clip/v2")
+		sse_client := sse.NewClient("https://" + os.Getenv("BRIDGE_IP") + "/eventstream/clip/v2")
 		sse_client.Connection.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
