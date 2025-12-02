@@ -298,9 +298,9 @@ func (m model) View() string {
 
 	// Title & footer
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF79C6")).MarginLeft(2).Render("Your Hue Lights")
-	footer := lipgloss.NewStyle().Faint(true).MarginTop(1).MarginLeft(2).Render("Press space to select • enter to toggle • q to quit.")
+	footer := lipgloss.NewStyle().Faint(true).MarginTop(1).MarginLeft(2).Render("• Press space to select • < > to adjust brightness \n• Enter to toggle on/off • q to quit.")
 
-	return title + "\n\n" + boxed + "\n" + footer
+	return title + "\n" + boxed + footer
 }
 
 func returnLights() ([]Light, error) {
