@@ -386,13 +386,6 @@ func main() {
 	hue_application_key := flag.String("key", "", "Hue application key")
 	flag.Parse()
 
-	// Initialize openhue home instance
-	var err error
-	home, err = openhue.NewHome(*bridge_ip, *hue_application_key)
-	if err != nil {
-		log.Fatalf("Failed to create openhue home: %v", err)
-	}
-
 	// Set up logging to file
 	f, err := tea.LogToFile("debug.log", "debug")
 	if err != nil {
@@ -400,6 +393,20 @@ func main() {
 		os.Exit(1)
 	}
 	defer f.Close()
+
+	// Initialize openhue home instance
+	home, err = openhue.NewHome(*bridge_ip, *hue_application_key)
+	if err != nil {
+		if err.Error() == "illegal arguments, bridgeIP and apiKey must be set" {
+			log.Println("Flags not found, checking config file...")
+			home, err = openhue.NewHome(openhue.LoadConfNoError())
+			if err != nil {
+				log.Fatalf("Failed to create openhue home from config: %v", err)
+			}
+		} else {
+			log.Fatalf("Failed to create openhue home: %v", err)
+		}
+	}
 
 	// Create channel for SSE events
 	sseChannel := make(chan []byte)
