@@ -160,6 +160,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 
+		case "right", "l":
+			if len(m.selected) > 0 {
+				for index := range m.selected {
+					lightID := m.light[index].ID
+					lightBright, err := setLightBrightness(lightID, 10)
+					if err != nil {
+						log.Printf("Error setting light brightness for %s: %v", lightID, err)
+						continue
+					}
+					log.Printf("Increased brightness of light %s to %d", lightID, lightBright)
+				}
+			}
+
+		case "left", "h":
+			if len(m.selected) > 0 {
+				for index := range m.selected {
+					lightID := m.light[index].ID
+					lightBright, err := setLightBrightness(lightID, -10)
+					if err != nil {
+						log.Printf("Error setting light brightness for %s: %v", lightID, err)
+						continue
+					}
+					log.Printf("Decreasing brightness of light %s to %d", lightID, lightBright)
+				}
+			}
+
 		// The spacebar toggles item for selection
 		case " ":
 			_, ok := m.selected[m.cursor]
@@ -326,6 +352,33 @@ func toggleLight(lightID string, currentStatus bool) error {
 	return home.UpdateLight(lightID, openhue.LightPut{
 		On: &openhue.On{On: &newStatus},
 	})
+}
+
+func setLightBrightness(lightID string, change int) (int, error) {
+	lights, err := home.GetLights()
+	if err != nil {
+		return 0, fmt.Errorf("error fetching lights: %v", err)
+	}
+	light, ok := lights[lightID]
+	if !ok {
+		return 0, fmt.Errorf("light not found: %s", lightID)
+	}
+	currentBrightness := int(*light.Dimming.Brightness)
+	newBrightness := currentBrightness + change
+	if newBrightness < 0 {
+		newBrightness = 0
+	} else if newBrightness > 100 {
+		newBrightness = 100
+	}
+	log.Printf("Setting brightness of light %s from %d to %d", lightID, currentBrightness, newBrightness)
+	brightnessFinal := openhue.Brightness(newBrightness)
+	err = home.UpdateLight(lightID, openhue.LightPut{
+		Dimming: &openhue.Dimming{Brightness: &brightnessFinal},
+	})
+	if err != nil {
+		return currentBrightness, fmt.Errorf("error updating brightness: %v", err)
+	}
+	return newBrightness, nil
 }
 
 func main() {
