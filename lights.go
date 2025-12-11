@@ -46,10 +46,12 @@ type SSEUpdate struct {
 }
 
 type lightModel struct {
-	light      []Light
-	cursor     int
-	selected   map[int]struct{}
-	sseChannel chan []byte
+	light       []Light
+	cursor      int
+	selected    map[int]struct{}
+	sseChannel  chan []byte
+	commandMode bool
+	commandText string
 }
 
 func initialModel(lights []Light, sseChannel chan []byte) lightModel {
@@ -58,9 +60,11 @@ func initialModel(lights []Light, sseChannel chan []byte) lightModel {
 	listLights = append(listLights, lights...)
 
 	return lightModel{
-		light:      listLights,
-		selected:   make(map[int]struct{}),
-		sseChannel: sseChannel,
+		light:       listLights,
+		selected:    make(map[int]struct{}),
+		sseChannel:  sseChannel,
+		commandMode: false,
+		commandText: "",
 	}
 }
 
@@ -121,84 +125,110 @@ func (m lightModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, m.Init()
 	case tea.KeyMsg:
-		switch msg.String() {
-		// These keys should exit the program.
-		case "ctrl+c", "q":
-			return m, tea.Quit
-
-		// The "up" and "k" keys move the cursor up
-		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-
-		// The "down" and "j" keys move the cursor down
-		case "down", "j":
-			if m.cursor < len(m.light)-1 {
-				m.cursor++
-			}
-
-		case "right", "l":
-			if len(m.selected) > 0 {
-				for index := range m.selected {
-					lightID := m.light[index].ID
-					lightBright, err := setLightBrightness(lightID, 10)
-					if err != nil {
-						log.Printf("Error setting light brightness for %s: %v", lightID, err)
-						continue
-					}
-					log.Printf("Increased brightness of light %s to %d", lightID, lightBright)
+		if m.commandMode {
+			switch msg.String() {
+			case "escape":
+				m.commandMode = false
+				m.commandText = ""
+			case "enter":
+				m.executeCommand(m.commandText)
+				m.commandMode = false
+				m.commandText = ""
+			case "backspace":
+				if len(m.commandText) > 0 {
+					m.commandText = m.commandText[:len(m.commandText)-1]
+				}
+			default:
+				// Add character to command text
+				if len(msg.String()) == 1 {
+					m.commandText += msg.String()
 				}
 			}
+		} else {
+			switch msg.String() {
+			// These keys should exit the program.
+			case "ctrl+c", "q":
+				return m, tea.Quit
 
-		case "left", "h":
-			if len(m.selected) > 0 {
-				for index := range m.selected {
-					lightID := m.light[index].ID
-					lightBright, err := setLightBrightness(lightID, -10)
-					if err != nil {
-						log.Printf("Error setting light brightness for %s: %v", lightID, err)
-						continue
-					}
-					log.Printf("Decreasing brightness of light %s to %d", lightID, lightBright)
+			// Open command mode
+			case ":":
+				m.commandMode = true
+				m.commandText = ""
+
+			// The "up" and "k" keys move the cursor up
+			case "up", "k":
+				if m.cursor > 0 {
+					m.cursor--
 				}
-			}
 
-		// The spacebar toggles item for selection
-		case " ":
-			_, ok := m.selected[m.cursor]
-			if ok {
-				delete(m.selected, m.cursor)
-			} else {
-				m.selected[m.cursor] = struct{}{}
-			}
+			// The "down" and "j" keys move the cursor down
+			case "down", "j":
+				if m.cursor < len(m.light)-1 {
+					m.cursor++
+				}
 
-		case "enter":
-			// If something is selected
-			if len(m.selected) > 0 {
-				for index := range m.selected {
-					lightID := m.light[index].ID
-					lightStatus, err := getLightStatus(lightID)
-					if err != nil {
-						log.Printf("Error getting light status for %s: %v", lightID, err)
-						continue
+			case "right", "l":
+				if len(m.selected) > 0 {
+					for index := range m.selected {
+						lightID := m.light[index].ID
+						lightBright, err := setLightBrightness(lightID, 10)
+						if err != nil {
+							log.Printf("Error setting light brightness for %s: %v", lightID, err)
+							continue
+						}
+						log.Printf("Increased brightness of light %s to %d", lightID, lightBright)
 					}
-					err = toggleLight(lightID, lightStatus)
-					if err != nil {
-						log.Printf("Error toggling light for %s: %v", lightID, err)
-						continue
+				}
+
+			case "left", "h":
+				if len(m.selected) > 0 {
+					for index := range m.selected {
+						lightID := m.light[index].ID
+						lightBright, err := setLightBrightness(lightID, -10)
+						if err != nil {
+							log.Printf("Error setting light brightness for %s: %v", lightID, err)
+							continue
+						}
+						log.Printf("Decreasing brightness of light %s to %d", lightID, lightBright)
 					}
+				}
+
+			// The spacebar toggles item for selection
+			case " ":
+				_, ok := m.selected[m.cursor]
+				if ok {
+					delete(m.selected, m.cursor)
+				} else {
+					m.selected[m.cursor] = struct{}{}
+				}
+
+			case "enter":
+				// If something is selected
+				if len(m.selected) > 0 {
+					for index := range m.selected {
+						lightID := m.light[index].ID
+						lightStatus, err := getLightStatus(lightID)
+						if err != nil {
+							log.Printf("Error getting light status for %s: %v", lightID, err)
+							continue
+						}
+						err = toggleLight(lightID, lightStatus)
+						if err != nil {
+							log.Printf("Error toggling light for %s: %v", lightID, err)
+							continue
+						}
+						m.selected = make(map[int]struct{})
+					}
+					// Refresh the entire list
+					freshLights, err := returnLights()
+					if err != nil {
+						log.Printf("Warning: Failed to refresh lights after toggle: %v", err)
+					} else {
+						m.light = freshLights
+					}
+
 					m.selected = make(map[int]struct{})
 				}
-				// Refresh the entire list
-				freshLights, err := returnLights()
-				if err != nil {
-					log.Printf("Warning: Failed to refresh lights after toggle: %v", err)
-				} else {
-					m.light = freshLights
-				}
-
-				m.selected = make(map[int]struct{})
 			}
 		}
 	}
@@ -208,9 +238,9 @@ func (m lightModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m lightModel) View() string {
 	const (
-		nameWidth       = 16
+		nameWidth       = 22
 		statusWidth     = 6
-		brightnessWidth = 10
+		brightnessWidth = 14
 	)
 
 	// Styles
@@ -222,14 +252,14 @@ func (m lightModel) View() string {
 	// Header row — built exactly like data rows → perfect alignment
 	header := lipgloss.NewStyle().Width(nameWidth).Render(headerStyle.Render("NAME")) + "  " +
 		lipgloss.NewStyle().Width(statusWidth).Render(headerStyle.Render("STATUS")) + "  " +
-		lipgloss.NewStyle().Width(brightnessWidth).Render(headerStyle.Render("BRIGHTNESS"))
+		lipgloss.NewStyle().Width(brightnessWidth).MarginLeft(3).Render(headerStyle.Render("BRIGHTNESS"))
 
 	rows = append(rows, "  "+header)
 
 	// Horizontal divider
 	divider := lipgloss.NewStyle().Width(nameWidth).Render(dividerStyle.Render(strings.Repeat("─", nameWidth))) + "  " +
 		lipgloss.NewStyle().Width(statusWidth).Render(dividerStyle.Render(strings.Repeat("─", statusWidth))) + "  " +
-		lipgloss.NewStyle().Width(brightnessWidth).Render(dividerStyle.Render(strings.Repeat("─", brightnessWidth)))
+		lipgloss.NewStyle().Width(brightnessWidth).MarginLeft(3).Render(dividerStyle.Render(strings.Repeat("─", brightnessWidth)))
 
 	rows = append(rows, "  "+divider)
 
@@ -240,7 +270,7 @@ func (m lightModel) View() string {
 			cursor = cursorStyle.Render("▶ ")
 		}
 
-		checkmark := " "
+		checkmark := "  "
 		if _, ok := m.selected[i]; ok {
 			checkmark = selectedStyle.Render("✓ ")
 		}
@@ -259,7 +289,7 @@ func (m lightModel) View() string {
 		}
 
 		bright := fmt.Sprintf("%.0f%%", light.Brightness)
-		bright = lipgloss.NewStyle().Width(brightnessWidth).Render(bright)
+		bright = lipgloss.NewStyle().Width(brightnessWidth).MarginLeft(3).Render(bright)
 
 		row := cursor + checkmark +
 			lipgloss.NewStyle().Width(nameWidth).Render(name) + "  " +
@@ -276,9 +306,14 @@ func (m lightModel) View() string {
 
 	// Title & footer
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF79C6")).MarginLeft(2).Render("Your Hue Lights")
-	footer := lipgloss.NewStyle().Faint(true).MarginTop(1).MarginLeft(2).Render("• Press space to select • < > to adjust brightness \n• Enter to toggle on/off • q to quit.")
+	footer := lipgloss.NewStyle().Faint(true).MarginTop(1).MarginLeft(2).Render("• Press space to select • < > to adjust brightness \n• Enter to toggle on/off • : for commands • q to quit.")
 
-	return title + "\n" + boxed + footer
+	// Always render command box area (static space)
+	commandBox := m.renderCommandBox()
+
+	result := title + "\n" + boxed + footer + "\n" + commandBox
+
+	return result
 }
 
 func returnLights() ([]Light, error) {
@@ -357,4 +392,96 @@ func setLightBrightness(lightID string, change int) (int, error) {
 		return currentBrightness, fmt.Errorf("error updating brightness: %v", err)
 	}
 	return newBrightness, nil
+}
+
+func (m *lightModel) executeCommand(command string) {
+	log.Printf("Executing command: %s", command)
+
+	switch command {
+	case "help":
+		log.Println("Available commands: help, refresh, all_on, all_off")
+	case "refresh":
+		freshLights, err := returnLights()
+		if err != nil {
+			log.Printf("Error refreshing lights: %v", err)
+		} else {
+			m.light = freshLights
+			log.Println("Lights refreshed")
+		}
+	case "all_on":
+		for _, light := range m.light {
+			if light.Status == "off" {
+				err := toggleLight(light.ID, false)
+				if err != nil {
+					log.Printf("Error turning on light %s: %v", light.Name, err)
+				}
+			}
+		}
+		// Refresh after toggling
+		freshLights, err := returnLights()
+		if err == nil {
+			m.light = freshLights
+		}
+		log.Println("All lights turned on")
+	case "all_off":
+		for _, light := range m.light {
+			if light.Status == "on" {
+				err := toggleLight(light.ID, true)
+				if err != nil {
+					log.Printf("Error turning off light %s: %v", light.Name, err)
+				}
+			}
+		}
+		// Refresh after toggling
+		freshLights, err := returnLights()
+		if err == nil {
+			m.light = freshLights
+		}
+		log.Println("All lights turned off")
+	default:
+		log.Printf("Unknown command: %s", command)
+	}
+}
+
+func (m lightModel) renderCommandBox() string {
+	commandBoxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF79C6")).
+		Padding(0, 1).
+		Margin(1, 0).
+		Width(55).
+		Height(3)
+
+	if m.commandMode {
+		prompt := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FF79C6")).
+			Render(":")
+
+		text := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F8F8F2")).
+			Render(m.commandText)
+
+		cursor := lipgloss.NewStyle().
+			Background(lipgloss.Color("#F8F8F2")).
+			Foreground(lipgloss.Color("#282A36")).
+			Render(" ")
+
+		commandLine := prompt + text + cursor
+
+		help := lipgloss.NewStyle().
+			Faint(true).
+			Render("Commands: help, refresh, all_on, all_off • ESC to cancel • ENTER to execute")
+
+		content := commandLine + "\n" + help
+		return commandBoxStyle.Render(content)
+	} else {
+		// Show empty box with hint when not in command mode
+		hint := lipgloss.NewStyle().
+			Faint(true).
+			Render("Press : to open command mode")
+
+		content := "\n" + hint
+		return commandBoxStyle.Render(content)
+	}
 }
