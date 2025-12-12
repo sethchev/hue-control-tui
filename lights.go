@@ -20,6 +20,12 @@ type Light struct {
 	Brightness float32 `json:"brightness"`
 }
 
+type Scene struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 type SSEMsg struct {
 	Data []byte
 }
@@ -347,6 +353,52 @@ func returnLights() ([]Light, error) {
 	return result, nil
 }
 
+func getScenes() {
+	scenes, err := home.GetScenes()
+	if err != nil {
+		log.Printf("error fetching scenes: %v", err)
+	}
+
+	var result []Scene
+	for _, scene := range scenes {
+		result = append(result, Scene{
+			ID:   *scene.Id,
+			Name: *scene.Metadata.Name,
+		})
+	}
+	log.Printf("Scenes: %v", result)
+
+}
+
+func setScene(sceneName string) error {
+	log.Printf("Setting scene %s", sceneName)
+	// get sceneID from sceneName
+	scenes, err := home.GetScenes()
+	if err != nil {
+		log.Printf("error fetching scenes: %v", err)
+	}
+
+	var sceneID string
+	for _, scene := range scenes {
+		log.Printf("Scene Name: %s", *scene.Metadata.Name)
+		log.Printf("Scene being passed in: %v", sceneName)
+		if *scene.Metadata.Name == sceneName {
+			sceneID = *scene.Id
+			break
+		}
+	}
+	if sceneID == "" {
+		return fmt.Errorf("scene not found: %s", sceneName)
+	}
+	log.Printf("Scene ID: %s", sceneID)
+	action := openhue.SceneRecallActionActive
+	return home.UpdateScene(sceneID, openhue.ScenePut{
+		Recall: &openhue.SceneRecall{
+			Action: &action,
+		},
+	})
+}
+
 func getLightStatus(lightID string) (bool, error) {
 	lights, err := home.GetLights()
 	if err != nil {
@@ -440,6 +492,16 @@ func (m *lightModel) executeCommand(command string) {
 		log.Println("All lights turned off")
 	default:
 		log.Printf("Unknown command: %s", command)
+	}
+	parts := strings.SplitN(command, " ", 2)
+	switch parts[0] {
+	case "scene":
+		if len(parts) < 2 {
+			log.Println("Usage: scene <scene name>")
+			return
+		}
+		sceneName := parts[1]
+		setScene(sceneName)
 	}
 }
 
