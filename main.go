@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -34,15 +35,26 @@ var (
 func main() {
 	bridge_ip := flag.String("bridge_ip", "", "IP address of the Hue Bridge")
 	hue_application_key := flag.String("key", "", "Hue application key")
+	debug := flag.Bool("debug", false, "Enable debug mode")
 	flag.Parse()
 
 	// Set up logging to file
-	f, err := tea.LogToFile("debug.log", "debug")
-	if err != nil {
-		fmt.Println("fatal:", err)
-		os.Exit(1)
+	if *debug {
+		userHomeDir, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
+		}
+		configDir := userHomeDir + "/.openhue"
+		f, err := tea.LogToFile(configDir+"/debug.log", "debug")
+		if err != nil {
+			fmt.Println("fatal:", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+	} else {
+		log.SetOutput(io.Discard)
 	}
-	defer f.Close()
 
 	var bridgeIP, apiKey string
 
@@ -53,7 +65,8 @@ func main() {
 		log.Println("Using flags for bridge connection")
 	} else {
 		// Try config file
-		log.Println("Flags not found, checking config file...")
+		log.Printf("Startup flags %s and %s not found: ", *bridge_ip, *hue_application_key)
+		log.Println("Checking config file instead...")
 		_, err := openhue.LoadConf()
 		if err != nil {
 			// No config file, start bridge setup TUI
@@ -79,6 +92,7 @@ func main() {
 	}
 
 	// Initialize openhue home instance
+	var err error
 	home, err = openhue.NewHome(bridgeIP, apiKey)
 	if err != nil {
 		log.Fatalf("Failed to create openhue home: %v", err)
