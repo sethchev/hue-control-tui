@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -13,11 +15,13 @@ import (
 )
 
 type Light struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	Type       string  `json:"type"`
-	Status     string  `json:"status"`
-	Brightness float32 `json:"brightness"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	Status      string  `json:"status"`
+	Brightness  float32 `json:"brightness"`
+	Reachable   bool    `json:"reachable"`
+	DeviceOwner string  `json:"device_owner"` // Device ID for connectivity lookup
 }
 
 type Scene struct {
@@ -26,11 +30,29 @@ type Scene struct {
 	Type string `json:"type"`
 }
 
+// ZigbeeConnectivity represents the connectivity status of a Zigbee device
+type ZigbeeConnectivity struct {
+	ID    string `json:"id"`
+	IDV1  string `json:"id_v1"`
+	Owner struct {
+		Rid   string `json:"rid"`
+		Rtype string `json:"rtype"`
+	} `json:"owner"`
+	Status string `json:"status"` // "connected", "disconnected", etc.
+	Type   string `json:"type"`
+}
+
+// ZigbeeConnectivityResponse wraps the API response
+type ZigbeeConnectivityResponse struct {
+	Errors []interface{}        `json:"errors"`
+	Data   []ZigbeeConnectivity `json:"data"`
+}
+
 type SSEMsg struct {
 	Data []byte
 }
 
-// Minimal SSE parsing types for filtering "light" events
+// Minimal SSE parsing types for filtering "light" and "zigbee_connectivity" events
 type SSEDataItem struct {
 	ID           string `json:"id"`
 	IDV1         string `json:"id_v1"`
@@ -39,9 +61,14 @@ type SSEDataItem struct {
 	On           *struct {
 		On bool `json:"on,omitempty"`
 	} `json:"on,omitempty"`
-	Dimming struct {
+	Dimming *struct {
 		Brightness float64 `json:"brightness"`
-	}
+	} `json:"dimming,omitempty"`
+	Owner *struct {
+		Rid   string `json:"rid"`
+		Rtype string `json:"rtype"`
+	} `json:"owner,omitempty"`
+	Status string `json:"status,omitempty"` // For zigbee_connectivity: "connected" or "disconnected"
 }
 
 type SSEUpdate struct {
@@ -95,36 +122,12 @@ func (m lightModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, upd := range updates {
 			// top-level update.Type may be "update" etc.; iterate inner data
 			for _, item := range upd.Data {
-				if item.Type != "light" {
-					// ignore non-light events
-					continue
-				}
-				log.Printf("Entire item: %+v", item)
-				// Log event for debugging
-				log.Printf("SSE light event: id=%s id_v1=%s on=%v brightness=%v",
-					item.ID, item.IDV1, item.On, item.Dimming.Brightness)
-
-				// Update lights based on ID match
-				// Only update status if the On field was present in the JSON
-				if item.On != nil {
-					for i := range m.light {
-						if m.light[i].ID == item.ID {
-							if item.On.On {
-								m.light[i].Status = "on"
-							} else {
-								m.light[i].Status = "off"
-							}
-						}
-					}
-				}
-
-				// Update brightness if present
-				if item.Dimming.Brightness != 0 {
-					for i := range m.light {
-						if m.light[i].ID == item.ID {
-							m.light[i].Brightness = float32(item.Dimming.Brightness)
-						}
-					}
+				// Handle light events
+				if item.Type == "light" {
+					m = m.handleLightUpdate(item)
+				} else if item.Type == "zigbee_connectivity" {
+					// Handle connectivity events
+					m = m.handleConnectivityUpdate(item)
 				}
 			}
 		}
@@ -176,6 +179,10 @@ func (m lightModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "right", "l":
 				if len(m.selected) > 0 {
 					for index := range m.selected {
+						if !m.light[index].Reachable {
+							log.Printf("Skipping unreachable light %s", m.light[index].Name)
+							continue
+						}
 						lightID := m.light[index].ID
 						lightBright, err := setLightBrightness(lightID, 10)
 						if err != nil {
@@ -189,6 +196,10 @@ func (m lightModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "left", "h":
 				if len(m.selected) > 0 {
 					for index := range m.selected {
+						if !m.light[index].Reachable {
+							log.Printf("Skipping unreachable light %s", m.light[index].Name)
+							continue
+						}
 						lightID := m.light[index].ID
 						lightBright, err := setLightBrightness(lightID, -10)
 						if err != nil {
@@ -212,6 +223,10 @@ func (m lightModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// If something is selected
 				if len(m.selected) > 0 {
 					for index := range m.selected {
+						if !m.light[index].Reachable {
+							log.Printf("Skipping unreachable light %s", m.light[index].Name)
+							continue
+						}
 						lightID := m.light[index].ID
 						lightStatus, err := getLightStatus(lightID)
 						if err != nil {
@@ -244,9 +259,10 @@ func (m lightModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m lightModel) View() string {
 	const (
-		nameWidth       = 22
-		statusWidth     = 6
-		brightnessWidth = 14
+		nameWidth       = 30
+		statusWidth     = 12
+		brightnessWidth = 15
+		totalWidth      = nameWidth + statusWidth + brightnessWidth + 10 // includes spacing and padding
 	)
 
 	// Styles
@@ -288,13 +304,20 @@ func (m lightModel) View() string {
 		}
 
 		status := "OFF"
-		if light.Status == "on" {
-			status = statusOnStyle.Render("ON ")
+		if !light.Reachable {
+			status = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF8C00")).Render("UNREACHABLE")
+		} else if light.Status == "on" {
+			status = statusOnStyle.Render("ON")
 		} else {
 			status = statusOffStyle.Render("OFF")
 		}
 
-		bright := fmt.Sprintf("%.0f%%", light.Brightness)
+		bright := ""
+		if !light.Reachable {
+			bright = lipgloss.NewStyle().Faint(true).Render("N/A")
+		} else {
+			bright = fmt.Sprintf("%.0f%%", light.Brightness)
+		}
 		bright = lipgloss.NewStyle().Width(brightnessWidth).MarginLeft(3).Render(bright)
 
 		row := cursor + checkmark +
@@ -312,7 +335,9 @@ func (m lightModel) View() string {
 
 	// Title & footer
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF79C6")).MarginLeft(2).Render("Your Hue Lights")
-	footer := lipgloss.NewStyle().Faint(true).MarginTop(1).MarginLeft(2).Render("• Press space to select • < > to adjust brightness \n• Enter to toggle on/off • : for commands • q to quit.")
+	footer := lipgloss.NewStyle().Faint(true).MarginTop(1).MarginLeft(2).Render(
+		"• Space: select  • < >: brightness  • Enter: toggle  • :: commands  • q: quit\n" +
+			"• Unreachable lights will be skipped  • :refresh to update connectivity status")
 
 	// Always render command box area (static space)
 	commandBox := m.renderCommandBox()
@@ -342,15 +367,106 @@ func returnLights() ([]Light, error) {
 		if light.IsOn() {
 			status = "on"
 		}
+
+		// Get device owner for connectivity check
+		deviceOwner := ""
+		if light.Owner != nil && light.Owner.Rid != nil {
+			deviceOwner = *light.Owner.Rid
+		}
+
 		result = append(result, Light{
-			ID:         id,
-			Name:       *light.Metadata.Name,
-			Type:       string(*light.Metadata.Archetype),
-			Status:     status,
-			Brightness: *light.Dimming.Brightness,
+			ID:          id,
+			Name:        *light.Metadata.Name,
+			Type:        string(*light.Metadata.Archetype),
+			Status:      status,
+			Brightness:  *light.Dimming.Brightness,
+			Reachable:   true, // Will be updated by checkConnectivity
+			DeviceOwner: deviceOwner,
 		})
 	}
+
+	// Check connectivity status for all lights
+	checkConnectivity(result)
+
 	return result, nil
+}
+
+// checkConnectivity queries the zigbee_connectivity endpoint and updates Light.Reachable
+func checkConnectivity(lights []Light) {
+	if home == nil {
+		return
+	}
+
+	// Make direct API call to get zigbee_connectivity data
+	connectivityMap, err := getZigbeeConnectivity()
+	if err != nil {
+		log.Printf("Warning: Failed to check connectivity: %v", err)
+		return
+	}
+
+	// Update reachability for each light based on its device owner
+	for i := range lights {
+		if lights[i].DeviceOwner == "" {
+			continue
+		}
+
+		status, exists := connectivityMap[lights[i].DeviceOwner]
+		if exists {
+			lights[i].Reachable = (status == "connected")
+		}
+	}
+}
+
+// getZigbeeConnectivity makes a direct API call to get connectivity status
+func getZigbeeConnectivity() (map[string]string, error) {
+	// Use global bridgeIP and apiKey
+	if bridgeIP == "" || apiKey == "" {
+		return nil, fmt.Errorf("bridge configuration not initialized")
+	}
+
+	// Build the API URL
+	url := fmt.Sprintf("https://%s/clip/v2/resource/zigbee_connectivity", bridgeIP)
+
+	// Create HTTP client with TLS skip verification (same as SSE client)
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+
+	// Create request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Add authentication header
+	req.Header.Set("hue-application-key", apiKey)
+
+	// Make request
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Parse response
+	var connectivityResp ZigbeeConnectivityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&connectivityResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	// Build map of device ID -> connectivity status
+	connectivityMap := make(map[string]string)
+	for _, conn := range connectivityResp.Data {
+		if conn.Owner.Rid != "" {
+			connectivityMap[conn.Owner.Rid] = conn.Status
+		}
+	}
+
+	return connectivityMap, nil
 }
 
 func getScenes() {
@@ -451,18 +567,19 @@ func (m *lightModel) executeCommand(command string) {
 
 	switch command {
 	case "help":
-		log.Println("Available commands: help, refresh, all_on, all_off")
+		log.Println("Available commands: help, refresh, all_on, all_off, scene <name>")
+		log.Println("refresh - Updates light status and checks connectivity")
 	case "refresh":
 		freshLights, err := returnLights()
 		if err != nil {
 			log.Printf("Error refreshing lights: %v", err)
 		} else {
 			m.light = freshLights
-			log.Println("Lights refreshed")
+			log.Println("Lights refreshed with connectivity status")
 		}
 	case "all_on":
 		for _, light := range m.light {
-			if light.Status == "off" {
+			if light.Reachable && light.Status == "off" {
 				err := toggleLight(light.ID, false)
 				if err != nil {
 					log.Printf("Error turning on light %s: %v", light.Name, err)
@@ -477,7 +594,7 @@ func (m *lightModel) executeCommand(command string) {
 		log.Println("All lights turned on")
 	case "all_off":
 		for _, light := range m.light {
-			if light.Status == "on" {
+			if light.Reachable && light.Status == "on" {
 				err := toggleLight(light.ID, true)
 				if err != nil {
 					log.Printf("Error turning off light %s: %v", light.Name, err)
@@ -506,12 +623,13 @@ func (m *lightModel) executeCommand(command string) {
 }
 
 func (m lightModel) renderCommandBox() string {
+	const totalWidth = 30 + 12 + 15 + 10 // matches table width
 	commandBoxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#FF79C6")).
 		Padding(0, 1).
 		Margin(1, 0).
-		Width(55).
+		Width(totalWidth).
 		Height(3)
 
 	if m.commandMode {
@@ -546,4 +664,74 @@ func (m lightModel) renderCommandBox() string {
 		content := "\n" + hint
 		return commandBoxStyle.Render(content)
 	}
+}
+
+// handleLightUpdate processes SSE updates for light events
+func (m lightModel) handleLightUpdate(item SSEDataItem) lightModel {
+	log.Printf("Entire light item: %+v", item)
+
+	// Find the light in our list
+	lightIndex := -1
+	for i := range m.light {
+		if m.light[i].ID == item.ID {
+			lightIndex = i
+			break
+		}
+	}
+
+	// Skip if light not found
+	if lightIndex == -1 {
+		return m
+	}
+
+	// Log event for debugging
+	brightnessVal := float64(-1)
+	if item.Dimming != nil {
+		brightnessVal = item.Dimming.Brightness
+	}
+	log.Printf("SSE light event: id=%s id_v1=%s on=%v brightness=%v",
+		item.ID, item.IDV1, item.On, brightnessVal)
+
+	// Update status if the On field was present in the JSON
+	if item.On != nil {
+		if item.On.On {
+			m.light[lightIndex].Status = "on"
+		} else {
+			m.light[lightIndex].Status = "off"
+		}
+	}
+
+	// Update brightness if present (including 0 for off lights)
+	if item.Dimming != nil {
+		m.light[lightIndex].Brightness = float32(item.Dimming.Brightness)
+	}
+
+	// If we received any update, the light is reachable
+	m.light[lightIndex].Reachable = true
+
+	return m
+}
+
+// handleConnectivityUpdate processes SSE updates for zigbee_connectivity events
+func (m lightModel) handleConnectivityUpdate(item SSEDataItem) lightModel {
+	log.Printf("SSE connectivity event: id=%s owner=%v status=%s",
+		item.ID, item.Owner, item.Status)
+
+	// Skip if no owner information
+	if item.Owner == nil || item.Owner.Rid == "" {
+		return m
+	}
+
+	// Find all lights that belong to this device
+	deviceID := item.Owner.Rid
+	isConnected := (item.Status == "connected")
+
+	for i := range m.light {
+		if m.light[i].DeviceOwner == deviceID {
+			m.light[i].Reachable = isConnected
+			log.Printf("Updated light %s reachability to %v", m.light[i].Name, isConnected)
+		}
+	}
+
+	return m
 }

@@ -30,6 +30,10 @@ var (
 
 	// Openhue home instance
 	home *openhue.Home
+
+	// Global bridge configuration
+	bridgeIP string
+	apiKey   string
 )
 
 func main() {
@@ -55,8 +59,6 @@ func main() {
 	} else {
 		log.SetOutput(io.Discard)
 	}
-
-	var bridgeIP, apiKey string
 
 	// Try flags first
 	if *bridge_ip != "" && *hue_application_key != "" {
