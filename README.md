@@ -70,13 +70,6 @@ Unreachable lights are automatically skipped when attempting to control them. Us
 
 For detailed information, see [UNREACHABLE_LIGHTS.md](UNREACHABLE_LIGHTS.md).
 
-### Documentation
-
-- [CHANGELOG.md](CHANGELOG.md) - Complete change history
-- [UNREACHABLE_LIGHTS.md](UNREACHABLE_LIGHTS.md) - Feature documentation
-- [UI_FIXES.md](UI_FIXES.md) - UI layout details
-- [VISUAL_COMPARISON.md](VISUAL_COMPARISON.md) - Before/after UI comparison
-
 ### More
 
 Current plans include adding support for Rooms and Light Groups.

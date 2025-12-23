@@ -1,4 +1,4 @@
-module HueControlTUI
+module hue-control-tui
 
 go 1.25.4
 
